@@ -1,0 +1,102 @@
+[
+  {
+    "id": "ektp_definition",
+    "question": "Что такое ЕКТП?",
+    "expected_no_exact_match": false,
+    "expected_process": "ЕКТП_Транспорт",
+    "expected_single_process": true,
+    "expected_source_any": ["Общая инструкция пользователя.pdf"]
+  },
+  {
+    "id": "ektp_statuses",
+    "question": "Какие статусы у заявок в ЕКТП?",
+    "expected_no_exact_match": false,
+    "expected_process": "ЕКТП_Транспорт",
+    "expected_single_process": true,
+    "expected_source_any": ["Общая инструкция пользователя.pdf"]
+  },
+  {
+    "id": "ektp_participants",
+    "question": "Кто участники заявочного процесса в ЕКТП?",
+    "expected_no_exact_match": false,
+    "expected_process": "ЕКТП_Транспорт",
+    "expected_single_process": true,
+    "contains_in_answer_any": ["Заявитель", "Заказчик", "Диспетчер"]
+  },
+  {
+    "id": "ektp_steps",
+    "question": "Как подать заявку на транспорт в ЕКТП по шагам?",
+    "expected_no_exact_match": false,
+    "expected_process": "ЕКТП_Транспорт",
+    "expected_single_process": true,
+    "expected_source_any": ["Общая инструкция пользователя.pdf", "Шаблон заявки на ИС ЕКТП.docx"]
+  },
+  {
+    "id": "ektp_template",
+    "question": "Покажи шаблон заявки на ИС ЕКТП",
+    "expected_no_exact_match": false,
+    "expected_process": "ЕКТП_Транспорт",
+    "expected_single_process": true,
+    "expected_source_any": ["Шаблон заявки на ИС ЕКТП.docx"]
+  },
+  {
+    "id": "tsus_definition",
+    "question": "Что такое ЦУС?",
+    "expected_no_exact_match": false,
+    "expected_process": "ЦУС_Строительный_контроль",
+    "expected_single_process": true,
+    "expected_source_any": ["Руководство_пользователя_ИД+Журналы_01.09.docx"]
+  },
+  {
+    "id": "tsus_steps",
+    "question": "Как проходит строительный контроль в ЦУС?",
+    "expected_no_exact_match": false,
+    "expected_process": "ЦУС_Строительный_контроль",
+    "expected_single_process": true,
+    "expected_source_any": ["Руководство_пользователя_ИД+Журналы_01.09.docx", "Шаблон заявки на доступ в ЦУС.docx"]
+  },
+  {
+    "id": "tsus_template",
+    "question": "Покажи шаблон заявки на доступ в ЦУС",
+    "expected_no_exact_match": false,
+    "expected_process": "ЦУС_Строительный_контроль",
+    "expected_single_process": true,
+    "expected_source_any": ["Шаблон заявки на доступ в ЦУС.docx"]
+  },
+  {
+    "id": "medical_form",
+    "question": "Покажи форму направления на медосмотр",
+    "expected_no_exact_match": false,
+    "expected_process": "Обучение_и_медосмотр",
+    "expected_single_process": true,
+    "expected_source_any": ["Форма_направление_на_медосмотр.doc"]
+  },
+  {
+    "id": "ambiguity_needs_clarification",
+    "question": "Кто участники процесса?",
+    "expected_no_exact_match": true,
+    "contains_in_answer_any": ["Уточните", "неоднозначен"]
+  },
+  {
+    "id": "clarification_followup",
+    "question": "по ЕКТП",
+    "session_id": "clarify-demo",
+    "pre_steps": [
+      {
+        "question": "Кто участники процесса?",
+        "session_id": "clarify-demo"
+      }
+    ],
+    "expected_no_exact_match": false,
+    "expected_process": "ЕКТП_Транспорт",
+    "expected_single_process": true,
+    "contains_in_answer_any": ["Заявитель", "Заказчик"]
+  },
+  {
+    "id": "out_of_scope",
+    "question": "Интегрируй ЕКТП с внешним API поставщика",
+    "skip_when_stub_llm": true,
+    "expected_no_exact_match": true,
+    "contains_in_answer_any": ["В базе знаний нет точной информации", "Уточните"]
+  }
+]

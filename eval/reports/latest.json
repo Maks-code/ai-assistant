@@ -1,0 +1,158 @@
+{
+  "generated_at": "2026-02-10T11:42:20.222145+00:00",
+  "mode": "local",
+  "cases_path": "eval/cases.json",
+  "summary": {
+    "total": 12,
+    "executed": 11,
+    "skipped": 1,
+    "passed": 11,
+    "failed": 0,
+    "pass_rate": 1.0,
+    "fallback_rate": 0.0909
+  },
+  "results": [
+    {
+      "id": "ektp_definition",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЕКТП_Транспорт/инструкции/Общая инструкция пользователя.pdf",
+        "ЕКТП_Транспорт/инструкции/Шаблон заявки на ИС ЕКТП.docx"
+      ],
+      "answer_preview": "STUB_ANSWER"
+    },
+    {
+      "id": "ektp_statuses",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЕКТП_Транспорт/инструкции/Общая инструкция пользователя.pdf",
+        "ЕКТП_Транспорт/инструкции/Шаблон заявки на ИС ЕКТП.docx"
+      ],
+      "answer_preview": "STUB_ANSWER"
+    },
+    {
+      "id": "ektp_participants",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЕКТП_Транспорт/инструкции/Общая инструкция пользователя.pdf",
+        "ЕКТП_Транспорт/инструкции/Шаблон заявки на ИС ЕКТП.docx"
+      ],
+      "answer_preview": "В базе знаний найдены участники (роли) заявочного процесса в ЕКТП Транспорт:\n- Заказчик\n- Заявитель\n- Диспетчер\n- Контроллер\n- Специалист техподдержки\n- Редактор справочников\n- Администратор"
+    },
+    {
+      "id": "ektp_steps",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЕКТП_Транспорт/инструкции/Общая инструкция пользователя.pdf",
+        "ЕКТП_Транспорт/инструкции/Шаблон заявки на ИС ЕКТП.docx"
+      ],
+      "answer_preview": "STUB_ANSWER"
+    },
+    {
+      "id": "ektp_template",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЕКТП_Транспорт/инструкции/Общая инструкция пользователя.pdf",
+        "ЕКТП_Транспорт/инструкции/Шаблон заявки на ИС ЕКТП.docx"
+      ],
+      "answer_preview": "STUB_ANSWER"
+    },
+    {
+      "id": "tsus_definition",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЦУС_Строительный_контроль/инструкции/Руководство_пользователя_ИД+Журналы_01.09.docx",
+        "ЦУС_Строительный_контроль/инструкции/Шаблон заявки на доступ в ЦУС.docx"
+      ],
+      "answer_preview": "STUB_ANSWER"
+    },
+    {
+      "id": "tsus_steps",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЦУС_Строительный_контроль/инструкции/Руководство_пользователя_ИД+Журналы_01.09.docx",
+        "ЦУС_Строительный_контроль/инструкции/Шаблон заявки на доступ в ЦУС.docx"
+      ],
+      "answer_preview": "STUB_ANSWER"
+    },
+    {
+      "id": "tsus_template",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЦУС_Строительный_контроль/инструкции/Руководство_пользователя_ИД+Журналы_01.09.docx",
+        "ЦУС_Строительный_контроль/инструкции/Шаблон заявки на доступ в ЦУС.docx"
+      ],
+      "answer_preview": "STUB_ANSWER"
+    },
+    {
+      "id": "medical_form",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "Обучение_и_медосмотр/инструкции/Форма_направление_на_медосмотр.doc"
+      ],
+      "answer_preview": "STUB_ANSWER"
+    },
+    {
+      "id": "ambiguity_needs_clarification",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": true,
+      "source_paths": [
+        "ЕКТП_Транспорт/инструкции/Общая инструкция пользователя.pdf",
+        "ЦУС_Строительный_контроль/инструкции/Руководство_пользователя_ИД+Журналы_01.09.docx"
+      ],
+      "answer_preview": "Запрос неоднозначен и может относиться к нескольким процессам.\n\nУточните вопрос (процесс, роль, систему или название документа) или откройте релевантные документы из блока источников. Уточните, пожалуйста, процесс или си"
+    },
+    {
+      "id": "clarification_followup",
+      "ok": true,
+      "skipped": false,
+      "reasons": [],
+      "no_exact_match": false,
+      "source_paths": [
+        "ЕКТП_Транспорт/инструкции/Общая инструкция пользователя.pdf",
+        "ЕКТП_Транспорт/инструкции/Шаблон заявки на ИС ЕКТП.docx"
+      ],
+      "answer_preview": "В базе знаний найдены участники (роли) заявочного процесса в ЕКТП Транспорт:\n- Заявитель\n- Заказчик\n- Контроллер\n- Специалист техподдержки\n- Редактор справочников\n- Администратор\n- Диспетчер"
+    },
+    {
+      "id": "out_of_scope",
+      "ok": true,
+      "skipped": true,
+      "reasons": [
+        "skipped in stub-llm mode"
+      ],
+      "no_exact_match": true,
+      "source_paths": [],
+      "answer_preview": ""
+    }
+  ]
+}

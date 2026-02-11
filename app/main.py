@@ -15,6 +15,12 @@ from app.dialog_state import DialogStateStore
 from app.kb import KnowledgeBaseIndex, RetrievalResult
 from app.llm import FALLBACK_EN, FALLBACK_RU, LLMService
 from app.logging_utils import RequestLogger
+from app.profile import (
+    ALLOWED_DIVISIONS,
+    BRANCH_SUBDIVISIONS,
+    ProfileStore,
+    UserProfile,
+)
 
 
 settings = load_settings()
@@ -28,6 +34,7 @@ llm_service = LLMService(
 )
 request_logger = RequestLogger(settings.log_file)
 actions_store = ActionsStore(settings.log_file.parent / "actions.log")
+profile_store = ProfileStore(settings.log_file.parent / "profile.json")
 dialog_state = DialogStateStore(ttl_minutes=20)
 
 
@@ -47,11 +54,20 @@ class ActionCreateRequest(BaseModel):
     process: str = Field(..., min_length=2)
     title: str = Field(..., min_length=2)
     details: str = Field(..., min_length=2)
-    requester: str = Field(default="Не указан")
+    requester: str = Field(default="")
 
 
 class DialogClearRequest(BaseModel):
     session_id: str | None = None
+
+
+class ProfileRequest(BaseModel):
+    full_name: str = Field(..., min_length=3, max_length=120)
+    division: str = Field(..., min_length=2, max_length=64)
+    subdivision: str | None = Field(default=None, max_length=64)
+    subdivision_type: str | None = Field(default=None, max_length=64)
+    job_title: str = Field(..., min_length=2, max_length=120)
+    email: str = Field(..., min_length=5, max_length=160)
 
 
 PARTICIPANT_QUERY_RE = re.compile(
@@ -59,16 +75,198 @@ PARTICIPANT_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 
-ROLE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("Заявитель", re.compile(r"\bзаявител\w*\b", re.IGNORECASE)),
-    ("Заказчик", re.compile(r"\bзаказчик\w*\b", re.IGNORECASE)),
-    ("Диспетчер", re.compile(r"\bдиспетчер\w*\b", re.IGNORECASE)),
-    ("Контроллер", re.compile(r"\bконтроллер\w*\b", re.IGNORECASE)),
-    ("Специалист техподдержки", re.compile(r"специалист\s+техпод", re.IGNORECASE)),
-    ("Редактор справочников", re.compile(r"редактор\s+справоч", re.IGNORECASE)),
-    ("Администратор", re.compile(r"\bадминистратор\w*\b", re.IGNORECASE)),
+RESPONSIBILITY_QUERY_RE = re.compile(
+    r"((кто|какой\s+участник)\s+"
+    r"(должен|отвеча\w*|дела\w*|созда\w*|заполня\w*|назнача\w*|принима\w*|акцепт\w*|подтвержда\w*|согласовыва\w*|согласу\w*|веде\w*|оформля\w*|курир\w*|подписыва\w*|подпис\w*)"
+    r"|кто\s+за\s+что|who\s+(should|is\s+responsible|approves|assigns|creates|fills|confirms))",
+    re.IGNORECASE,
+)
+
+ACTION_HINT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("доступ", re.compile(r"доступ\w*", re.IGNORECASE)),
+    ("справоч", re.compile(r"справоч\w*", re.IGNORECASE)),
+    ("акцепт", re.compile(r"акцепт\w*", re.IGNORECASE)),
+    ("назнач", re.compile(r"назнач\w*|водител\w*|\bтс\b|транспорт\w*", re.IGNORECASE)),
+    ("заявк", re.compile(r"заявк\w*|задани\w*", re.IGNORECASE)),
+    ("факт", re.compile(r"фактич\w*|путев\w*", re.IGNORECASE)),
+    ("ретрансляц", re.compile(r"ретрансляц\w*|глонасс\w*", re.IGNORECASE)),
+    ("пп", re.compile(r"производствен\w*\s+программ\w*|\bпп\b", re.IGNORECASE)),
+    ("журнал", re.compile(r"журнал\w*|раздел\w*", re.IGNORECASE)),
+    ("ид", re.compile(r"исполнительн\w*\s+документац\w*|аоср|акт\w*", re.IGNORECASE)),
+    ("сэд", re.compile(r"\bсэд\b|документооборот\w*|соглас\w*|подпис\w*", re.IGNORECASE)),
+    ("замечан", re.compile(r"замечан\w*|доработк\w*", re.IGNORECASE)),
 ]
 
+ACTION_ROLE_WEIGHTS: dict[str, dict[str, float]] = {
+    "доступ": {
+        "ЦДС": 2.0,
+        "Администратор/координатор ЦУС": 2.3,
+    },
+    "справоч": {
+        "Специалист по транспорту филиала/ГО": 2.0,
+        "Подрядная организация": 0.5,
+        "Координатор объекта": 0.9,
+        "ЦДС": 0.75,
+    },
+    "акцепт": {
+        "Специалист по транспорту филиала/ГО": 2.4,
+        "Подрядная организация": 0.45,
+        "Согласующее/подписывающее лицо": 1.35,
+    },
+    "назнач": {
+        "Подрядная организация": 1.8,
+        "Ответственный сотрудник ПУ": 1.15,
+        "Инженер строительного контроля": 1.05,
+    },
+    "заявк": {
+        "Ответственный сотрудник ПУ": 1.5,
+    },
+    "ретрансляц": {
+        "Ответственный сотрудник ПУ": 1.2,
+        "ЦДС": 1.1,
+    },
+    "журнал": {
+        "Инженер строительного контроля": 1.9,
+        "Подрядная организация": 1.3,
+        "Координатор объекта": 1.1,
+    },
+    "ид": {
+        "Инженер строительного контроля": 1.8,
+        "Подрядная организация": 1.25,
+        "Координатор объекта": 1.1,
+        "Согласующее/подписывающее лицо": 1.05,
+    },
+    "сэд": {
+        "Согласующее/подписывающее лицо": 1.9,
+        "Координатор объекта": 1.2,
+        "Администратор/координатор ЦУС": 1.1,
+    },
+    "замечан": {
+        "Инженер строительного контроля": 1.45,
+        "Подрядная организация": 1.2,
+        "Координатор объекта": 1.1,
+    },
+}
+
+ROLE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("ЦДС", re.compile(r"(\bцдс\b|участник\s*1)", re.IGNORECASE)),
+    (
+        "Специалист по транспорту филиала/ГО",
+        re.compile(
+            r"(специалист\w*\s+по\s+транспорт\w+[\s\S]{0,40}(филиал\w*|го)"
+            r"|(филиал\w*|го)[\s\S]{0,40}специалист\w*\s+по\s+транспорт\w+"
+            r"|участник\s*2|участник\s*5)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "Ответственный сотрудник ПУ",
+        re.compile(
+            r"(ответствен\w*\s+сотрудник\w*[\s\S]{0,16}\bпу\b"
+            r"|сотрудник\w*[\s\S]{0,16}\bпу\b[\s\S]{0,24}ответствен\w*"
+            r"|специалист\w*[\s\S]{0,12}\bпу\b|участник\s*3)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "Подрядная организация",
+        re.compile(
+            r"(подрядн\w*\s+организац\w*[\s\S]{0,20}транспорт\w*"
+            r"|участник\s*4"
+            r"|контрагент\w*[\s\S]{0,24}(назнач\w*|подтвержд\w*|отклон\w*)"
+            r"|(назнач\w*|подтвержд\w*|отклон\w*)[\s\S]{0,24}контрагент\w*"
+            r"|подрядчик\w*)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "Администратор/координатор ЦУС",
+        re.compile(
+            r"(администратор\w*[\s\S]{0,24}\bцус\b"
+            r"|координатор\w*[\s\S]{0,24}\bцус\b"
+            r"|доступ\w*[\s\S]{0,24}\bцус\b)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "Координатор объекта",
+        re.compile(
+            r"(координатор\w*[\s\S]{0,24}объект\w*"
+            r"|ответствен\w*[\s\S]{0,20}объект\w*"
+            r"|\bпто\b|техзаказчик\w*)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "Инженер строительного контроля",
+        re.compile(
+            r"(инженер\w*[\s\S]{0,30}(строительн\w*\s+контрол\w*|стройконтрол\w*)"
+            r"|строительн\w*\s+контрол\w*)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "Представитель подрядной организации",
+        re.compile(
+            r"(представител\w*[\s\S]{0,22}подрядн\w*\s+организац\w*"
+            r"|представител\w*[\s\S]{0,16}подрядчик\w*)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "Согласующее/подписывающее лицо",
+        re.compile(
+            r"(согласующ\w*|подписыва\w*|подписант\w*|подписани\w*|подписание\s+эцп|\bэ[цп]\b)",
+            re.IGNORECASE,
+        ),
+    ),
+]
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _profile_to_dict(profile: UserProfile) -> dict[str, str]:
+    return {
+        "full_name": profile.full_name,
+        "division": profile.division,
+        "subdivision": profile.subdivision or "",
+        # Keep old key for backward compatibility with existing frontend cache.
+        "subdivision_type": profile.subdivision or "",
+        "job_title": profile.job_title,
+        "email": profile.email,
+    }
+
+
+def _normalize_profile_payload(payload: ProfileRequest) -> UserProfile:
+    full_name = re.sub(r"\s+", " ", payload.full_name).strip()
+    division = payload.division.strip()
+    subdivision = (payload.subdivision or payload.subdivision_type or "").strip()
+    job_title = re.sub(r"\s+", " ", payload.job_title).strip()
+    email = payload.email.strip().lower()
+
+    if division not in ALLOWED_DIVISIONS:
+        raise HTTPException(status_code=400, detail="Некорректное подразделение.")
+
+    if division == "ЦА":
+        subdivision = ""
+    else:
+        allowed_subdivisions = BRANCH_SUBDIVISIONS.get(division, ())
+        if subdivision not in allowed_subdivisions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Для '{division}' укажите корректное ПУ/АУП.",
+            )
+
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Некорректный email.")
+
+    return UserProfile(
+        full_name=full_name,
+        division=division,
+        subdivision=subdivision or None,
+        job_title=job_title,
+        email=email,
+    )
 
 
 def detect_language(question: str) -> str:
@@ -83,29 +281,63 @@ def is_participant_question(question: str) -> bool:
     return bool(PARTICIPANT_QUERY_RE.search(question))
 
 
+def is_responsibility_question(question: str) -> bool:
+    return bool(RESPONSIBILITY_QUERY_RE.search(question))
+
+
+def extract_action_hints(question: str) -> set[str]:
+    hints: set[str] = set()
+    for stem, pattern in ACTION_HINT_PATTERNS:
+        if pattern.search(question):
+            hints.add(stem)
+    return hints
+
+
 def extract_participants_from_results(
     results: list[RetrievalResult],
     process_hint: str | None = None,
+    action_hints: set[str] | None = None,
+    min_relative_score: float = 0.55,
     max_items: int = 10,
 ) -> list[str]:
-    items: list[str] = []
-    seen: set[str] = set()
+    score_by_label: Counter[str] = Counter()
 
-    for result in results:
+    for rank, result in enumerate(results):
         chunk = result.chunk
         if process_hint and chunk.process != process_hint:
             continue
 
-        for label, pattern in ROLE_PATTERNS:
-            if label in seen:
-                continue
-            if pattern.search(chunk.text):
-                seen.add(label)
-                items.append(label)
-                if len(items) >= max_items:
-                    return items
+        rank_bonus = max(0.2, 1.6 - (rank * 0.06))
+        chunk_weight = (result.score * 0.35) + (result.coverage * 2.2) + rank_bonus
+        chunk_text_lower = chunk.text.lower()
 
-    return items
+        if action_hints:
+            action_hits = sum(1 for stem in action_hints if stem in chunk_text_lower)
+            if action_hits == 0:
+                chunk_weight *= 0.35
+            else:
+                chunk_weight *= 1.0 + min(0.4, action_hits * 0.12)
+
+        for label, pattern in ROLE_PATTERNS:
+            if pattern.search(chunk.text):
+                label_weight = 1.0
+                if action_hints:
+                    for stem in action_hints:
+                        role_weights = ACTION_ROLE_WEIGHTS.get(stem)
+                        if not role_weights:
+                            continue
+                        label_weight *= role_weights.get(label, 0.95)
+                label_weight = min(max(label_weight, 0.35), 2.8)
+                score_by_label[label] += chunk_weight * label_weight
+
+    ordered = score_by_label.most_common(max_items)
+    if not ordered:
+        return []
+
+    top_score = ordered[0][1]
+    min_score = max(1.2, top_score * min_relative_score)
+    filtered = [label for label, score in ordered if score >= min_score]
+    return filtered[:max_items]
 
 
 def build_participants_answer(language: str, participants: list[str], process_hint: str | None) -> str:
@@ -116,6 +348,19 @@ def build_participants_answer(language: str, participants: list[str], process_hi
 
     lines = "\n".join(f"- {item}" for item in participants)
     return f"В базе знаний найдены участники (роли) заявочного процесса в {subject}:\n{lines}"
+
+
+def build_responsibility_answer(language: str, participants: list[str], process_hint: str | None) -> str:
+    subject = process_hint.replace("_", " ") if process_hint else "указанном процессе"
+    top = participants[:2]
+    if language == "en":
+        lines = "\n".join(f"- {item}" for item in top)
+        return f"According to the knowledge base, for {subject} this is handled by:\n{lines}"
+
+    lines = "\n".join(f"- {item}" for item in top)
+    if len(top) == 1:
+        return f"По базе знаний в {subject} это выполняет:\n{lines}"
+    return f"По базе знаний в {subject} это обычно выполняют:\n{lines}"
 
 
 def normalize_session_id(session_id: str | None) -> str:
@@ -164,39 +409,325 @@ def _dedupe_sources(sources: list[dict]) -> list[dict]:
     return result
 
 
+GENERIC_SOURCE_QUERY_TOKENS = {
+    "систем",
+    "ис",
+    "инструкц",
+    "документ",
+    "документа",
+    "файл",
+    "процесс",
+    "процес",
+    "порядок",
+    "вопрос",
+    "информац",
+    "ответ",
+}
+
+SEMANTIC_QUERY_EXPANSIONS: dict[str, set[str]] = {
+    "ретрансляц": {"повторн", "отправк", "телематич", "данных"},
+    "глонасс": {"телематич", "данных", "пробег"},
+    "доступ": {"заявк", "форм"},
+}
+
+
+def _semantic_query_tokens(question: str, process_hint: str | None) -> set[str]:
+    tokens = set(kb_index.query_tokens(question))
+    process_tokens = kb_index.process_token_set(process_hint)
+    result: set[str] = set()
+    for token in tokens:
+        if token.startswith("syn:"):
+            continue
+        if token in process_tokens:
+            continue
+        if token in GENERIC_SOURCE_QUERY_TOKENS:
+            continue
+        if len(token) < 3:
+            continue
+        result.add(token)
+
+    expanded: set[str] = set()
+    for token in result:
+        for stem, additions in SEMANTIC_QUERY_EXPANSIONS.items():
+            if token.startswith(stem):
+                expanded.update(additions)
+    result.update(expanded)
+
+    return result
+
+
+def _rank_related_sources_by_question(
+    question: str,
+    process_hint: str | None,
+    related_sources: list[dict],
+) -> list[dict]:
+    semantic_tokens = _semantic_query_tokens(question, process_hint)
+    if not semantic_tokens:
+        return []
+
+    scored: list[tuple[float, int, dict]] = []
+    for source in related_sources:
+        relative_path = str(source.get("relative_path", ""))
+        record = kb_index.documents.get(relative_path)
+        if not record:
+            continue
+
+        overlap = semantic_tokens & record.metadata_tokens
+        if not overlap:
+            continue
+
+        score = sum(kb_index.token_idf.get(token, 1.0) for token in overlap)
+        overlap_count = len(overlap)
+        if overlap_count < 1:
+            continue
+        if overlap_count == 1 and score < 0.75:
+            continue
+
+        scored.append((score, overlap_count, source))
+
+    scored.sort(key=lambda item: (item[1], item[0]), reverse=True)
+    return [item[2] for item in scored]
+
+
+def _role_query_process_fallback_sources(question: str, process_hint: str | None) -> list[dict]:
+    if not process_hint:
+        return []
+
+    docs = kb_index.list_documents(query=None, process=process_hint, forms_only=False)
+    non_md_docs = [doc for doc in docs if Path(str(doc.get("relative_path", ""))).suffix.lower() != ".md"]
+    if not non_md_docs:
+        return []
+
+    q = question.lower()
+    asks_access = "доступ" in q
+    semantic_tokens = _semantic_query_tokens(question, process_hint)
+
+    def is_instruction(doc: dict) -> bool:
+        name = str(doc.get("file_name", "")).lower()
+        return ("инструкц" in name) or ("руководств" in name) or ("manual" in name)
+
+    def is_form(doc: dict) -> bool:
+        return bool(doc.get("is_form"))
+
+    scored: list[tuple[float, dict]] = []
+    for doc in non_md_docs:
+        path = str(doc.get("relative_path", ""))
+        record = kb_index.documents.get(path)
+        metadata_tokens = record.metadata_tokens if record else set()
+        name_lower = str(doc.get("file_name", "")).lower()
+
+        score = 0.0
+        if is_instruction(doc):
+            score += 2.0
+        if not is_form(doc):
+            score += 1.2
+        if is_form(doc) and asks_access:
+            score += 3.0
+        if is_form(doc) and not asks_access:
+            score -= 1.2
+
+        overlap = semantic_tokens & metadata_tokens
+        if overlap:
+            score += 2.4 + (0.6 * len(overlap))
+
+        # Do not suggest highly specific telematics docs outside matching queries.
+        if ("телемат" in name_lower or "ретрансля" in name_lower or "повторн" in name_lower) and not (
+            "телемат" in q or "ретрансля" in q or "повторн" in q or "глонасс" in q
+        ):
+            score -= 2.6
+
+        scored.append((score, doc))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    top_limit = 1 if not asks_access else 2
+
+    output: list[dict] = []
+    for _, doc in scored[:top_limit]:
+        output.append(
+            {
+                "file_name": doc["file_name"],
+                "relative_path": doc["relative_path"],
+                "url": doc["url"],
+                "download_url": doc["download_url"],
+                "pages": [],
+                "sections": [],
+                "source_type": "related",
+            }
+        )
+    return output
+
+
+def _build_source_from_path(relative_path: str, source_type: str) -> dict | None:
+    record = kb_index.documents.get(relative_path)
+    if not record:
+        return None
+
+    return {
+        "file_name": record.file_name,
+        "relative_path": record.relative_path,
+        "url": kb_index._build_file_url(record.relative_path),
+        "download_url": kb_index._build_file_url(record.relative_path, download=True),
+        "pages": [],
+        "sections": [],
+        "source_type": source_type,
+    }
+
+
+def _rank_sources_from_results(
+    question: str,
+    process_hint: str | None,
+    results: list[RetrievalResult],
+    source_type: str,
+    exclude_paths: set[str] | None = None,
+    require_metadata_overlap: bool = False,
+    require_semantic_overlap: bool = False,
+) -> list[dict]:
+    semantic_tokens = _semantic_query_tokens(question, process_hint)
+    exclude_paths = exclude_paths or set()
+
+    score_by_path: dict[str, float] = {}
+    pages_by_path: dict[str, set[int]] = {}
+    sections_by_path: dict[str, set[str]] = {}
+
+    for result in results:
+        chunk = result.chunk
+        relative_path = chunk.relative_path
+        if relative_path in exclude_paths:
+            continue
+        if Path(relative_path).suffix.lower() == ".md":
+            continue
+        if process_hint and chunk.process != process_hint:
+            continue
+
+        record = kb_index.documents.get(relative_path)
+        if not record:
+            continue
+
+        metadata_overlap: set[str] = set()
+        if semantic_tokens:
+            metadata_overlap = semantic_tokens & record.metadata_tokens
+            if require_metadata_overlap and not metadata_overlap:
+                continue
+
+        score = (result.score * 0.9) + (result.coverage * 2.4)
+        if semantic_tokens:
+            chunk_tokens = kb_index.query_tokens(chunk.text)
+            overlap = semantic_tokens & chunk_tokens
+            if require_semantic_overlap and not overlap:
+                continue
+            if overlap:
+                score += 1.0 + (0.4 * len(overlap))
+            else:
+                score *= 0.08
+            if metadata_overlap:
+                score += 1.2 + (0.45 * len(metadata_overlap))
+
+        if chunk.page is not None:
+            score += 0.2
+
+        previous = score_by_path.get(relative_path, 0.0)
+        score_by_path[relative_path] = max(previous, score)
+
+        if chunk.page is not None:
+            pages_by_path.setdefault(relative_path, set()).add(chunk.page)
+        if chunk.section:
+            sections_by_path.setdefault(relative_path, set()).add(chunk.section)
+
+    ranked_paths = sorted(score_by_path.items(), key=lambda item: item[1], reverse=True)
+    output: list[dict] = []
+    for relative_path, score in ranked_paths:
+        if semantic_tokens and score < 1.25:
+            continue
+
+        source = _build_source_from_path(relative_path, source_type=source_type)
+        if not source:
+            continue
+        source["pages"] = sorted(pages_by_path.get(relative_path, set()))
+        source["sections"] = sorted(sections_by_path.get(relative_path, set()))
+        output.append(source)
+
+    return output
+
+
 def select_display_sources(
     question: str,
     process_hint: str | None,
+    ranked_results: list[RetrievalResult],
     context_results: list[RetrievalResult],
     context_sources: list[dict],
     related_sources: list[dict],
 ) -> list[dict]:
-    # In UI sources we show business documents, not service markdown stubs.
-    candidates = [*context_sources, *related_sources]
-    non_md_sources = [source for source in candidates if _source_extension(source) != ".md"]
-
+    intent = kb_index.classify_query_intent(question)
+    if is_participant_question(question) or is_responsibility_question(question):
+        intent = "procedure"
     target_process = process_hint or _dominant_context_process(context_results)
-    if target_process:
-        process_only = [
-            source
-            for source in non_md_sources
-            if _source_process(source) == target_process
-        ]
-        if process_only:
-            non_md_sources = process_only
 
-    non_md_sources = _dedupe_sources(non_md_sources)
-    non_md_sources.sort(
-        key=lambda source: (
-            0 if source.get("source_type") == "context" else 1,
-            source.get("relative_path", ""),
-        )
+    context_non_md = _rank_sources_from_results(
+        question=question,
+        process_hint=target_process,
+        results=context_results,
+        source_type="context",
+        require_metadata_overlap=False,
+        require_semantic_overlap=(intent != "documents"),
     )
 
-    if non_md_sources:
-        return non_md_sources[:6]
+    # Default mode: show only documents that were actually used in answer context.
+    if context_non_md and intent != "documents":
+        return context_non_md[:4]
+
+    # For role/participant questions keep at least one context document,
+    # even when semantic filtering is too strict for short queries.
+    if (is_participant_question(question) or is_responsibility_question(question)) and not context_non_md:
+        role_context_fallback = _rank_sources_from_results(
+            question=question,
+            process_hint=target_process,
+            results=context_results,
+            source_type="context",
+            require_metadata_overlap=False,
+            require_semantic_overlap=False,
+        )
+        if role_context_fallback:
+            return _dedupe_sources(role_context_fallback)[:2]
+
+    context_paths = {str(source.get("relative_path", "")) for source in context_non_md}
+    ranked_from_retrieval = _rank_sources_from_results(
+        question=question,
+        process_hint=target_process,
+        results=ranked_results,
+        source_type="related",
+        exclude_paths=context_paths,
+        require_metadata_overlap=(intent != "documents"),
+        require_semantic_overlap=(intent != "documents"),
+    )
+
+    if context_non_md and intent == "documents":
+        combined = _dedupe_sources([*context_non_md, *ranked_from_retrieval])
+        return combined[:6]
+
+    if ranked_from_retrieval:
+        return _dedupe_sources(ranked_from_retrieval)[:4]
+
+    related_non_md = [source for source in related_sources if _source_extension(source) != ".md"]
+    if target_process:
+        process_related = [
+            source for source in related_non_md if _source_process(source) == target_process
+        ]
+        if process_related:
+            related_non_md = process_related
+
+    ranked_related = _rank_related_sources_by_question(question, target_process, related_non_md)
+    if ranked_related:
+        return _dedupe_sources(ranked_related)[:4]
 
     # Fallback: suggest available non-markdown docs from the detected process.
+    if is_participant_question(question) or is_responsibility_question(question):
+        role_process_fallback = _role_query_process_fallback_sources(question, target_process)
+        if role_process_fallback:
+            return role_process_fallback
+
+    if intent != "documents":
+        return []
+
     process_for_fallback = target_process or process_hint
     if process_for_fallback:
         process_docs = kb_index.list_documents(query=question, process=process_for_fallback, forms_only=False)
@@ -333,12 +864,46 @@ def ask(payload: AskRequest) -> AskResponse:
         display_sources = select_display_sources(
             question=effective_question,
             process_hint=process_hint,
+            ranked_results=reranked_results,
             context_results=context_results,
             context_sources=context_sources,
             related_sources=related_sources,
         )
 
     final_sources = display_sources
+
+    participant_query = is_participant_question(effective_question)
+    responsibility_query = is_responsibility_question(effective_question)
+    if participant_query or responsibility_query:
+        role_scope_process = process_hint or _dominant_context_process(context_results)
+        action_hints = extract_action_hints(effective_question)
+        single_owner_hints = {"доступ", "справоч", "акцепт"}
+
+        # For vague "кто должен..." questions without a concrete action we keep
+        # fallback flow and request clarification instead of guessing a role.
+        if responsibility_query and not action_hints and not participant_query:
+            answer = build_fallback_answer(language, final_sources, reason="ambiguous")
+            dialog_state.set_pending(session_id, effective_question)
+            request_logger.log(raw_question, final_sources, answer=answer)
+            return AskResponse(answer=answer, sources=final_sources, no_exact_match=True)
+        else:
+            participants = extract_participants_from_results(
+                reranked_results[: min(len(reranked_results), 24)],
+                process_hint=role_scope_process,
+                action_hints=action_hints,
+                min_relative_score=0.72 if responsibility_query else 0.45,
+            )
+        min_items = 1 if responsibility_query else 2
+        if len(participants) >= min_items:
+            if responsibility_query and (action_hints & single_owner_hints):
+                participants = participants[:1]
+            if responsibility_query:
+                answer = build_responsibility_answer(language, participants, process_hint=role_scope_process)
+            else:
+                answer = build_participants_answer(language, participants, process_hint=role_scope_process)
+            dialog_state.clear(session_id)
+            request_logger.log(raw_question, final_sources, answer=answer)
+            return AskResponse(answer=answer, sources=final_sources, no_exact_match=False)
 
     if not has_strong_context or (process_ambiguous and process_hint is None):
         reason = "ambiguous" if process_ambiguous and process_hint is None else "missing"
@@ -347,17 +912,6 @@ def ask(payload: AskRequest) -> AskResponse:
             dialog_state.set_pending(session_id, effective_question)
         request_logger.log(raw_question, final_sources, answer=answer)
         return AskResponse(answer=answer, sources=final_sources, no_exact_match=True)
-
-    if is_participant_question(effective_question):
-        participants = extract_participants_from_results(
-            reranked_results[: min(len(reranked_results), 24)],
-            process_hint=process_hint,
-        )
-        if len(participants) >= 2:
-            answer = build_participants_answer(language, participants, process_hint=process_hint)
-            dialog_state.clear(session_id)
-            request_logger.log(raw_question, final_sources, answer=answer)
-            return AskResponse(answer=answer, sources=final_sources, no_exact_match=False)
 
     try:
         answer = llm_service.generate_answer(effective_question, context_results, intent=intent)
@@ -438,12 +992,18 @@ def list_actions(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, list
 
 @app.post("/api/actions")
 def create_action(payload: ActionCreateRequest) -> dict[str, object]:
+    requester_value = payload.requester.strip()
+    if not requester_value:
+        saved_profile = profile_store.load_profile()
+        if saved_profile and saved_profile.full_name:
+            requester_value = saved_profile.full_name
+
     record = actions_store.create_action(
         action_type=payload.action_type.strip(),
         process=payload.process.strip(),
         title=payload.title.strip(),
         details=payload.details.strip(),
-        requester=payload.requester.strip(),
+        requester=requester_value,
     )
     return {
         "status": "created",
@@ -459,6 +1019,28 @@ def create_action(payload: ActionCreateRequest) -> dict[str, object]:
             "created_at": record.created_at,
         },
     }
+
+
+@app.get("/api/profile")
+def get_profile() -> dict[str, object]:
+    profile = profile_store.load_profile()
+    return {
+        "profile": _profile_to_dict(profile) if profile else None,
+        "options": {
+            "divisions": list(ALLOWED_DIVISIONS),
+            "subdivisions_by_division": {
+                division: list(subdivisions)
+                for division, subdivisions in BRANCH_SUBDIVISIONS.items()
+            },
+        },
+    }
+
+
+@app.post("/api/profile")
+def save_profile(payload: ProfileRequest) -> dict[str, object]:
+    profile = _normalize_profile_payload(payload)
+    saved = profile_store.save_profile(profile)
+    return {"status": "saved", "profile": _profile_to_dict(saved)}
 
 
 @app.get("/api/files/{file_path:path}")

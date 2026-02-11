@@ -277,13 +277,14 @@
   <main class="app">
     <section class="header">
       <h1>Корпоративный ИИ-ассистент</h1>
-      <p>MVP: чат по KB, список документов и локальные действия (без интеграции с ИС).</p>
+      <p>MVP: чат по KB, документы, локальные действия и простой личный кабинет (без интеграции с ИС).</p>
     </section>
 
     <section class="tabs">
       <button class="tab-btn active" data-view="chatView">Чат</button>
       <button class="tab-btn" data-view="documentsView">Документы</button>
       <button class="tab-btn" data-view="actionsView">Действия</button>
+      <button class="tab-btn" data-view="profileView">ЛК</button>
     </section>
 
     <section class="view active" id="chatView">
@@ -331,12 +332,40 @@
             <input id="actionRequester" placeholder="Инициатор" />
             <button class="btn btn-primary" id="createActionBtn">Зарегистрировать действие</button>
           </div>
-          <div class="note" id="actionStatus">MVP-режим: действия сохраняются локально и не отправляются во внутренние системы.</div>
+          <div class="note" id="actionStatus">MVP-режим: действия сохраняются локально и не отправляются во внутренние системы. Инициатор берется из ЛК, если поле пустое.</div>
         </div>
         <div class="card">
           <strong>Последние действия</strong>
           <div class="note">Локальный журнал созданных заявок/обращений.</div>
           <div id="actionsList" style="margin-top:10px;"></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="view" id="profileView">
+      <section class="panel-content">
+        <div class="action-form">
+          <div class="row">
+            <input id="profileFullName" placeholder="ФИО" />
+            <select id="profileDivision">
+              <option value="">Подразделение</option>
+              <option value="Филиал Уфа">Филиал Уфа</option>
+              <option value="Филиал Тюмень">Филиал Тюмень</option>
+              <option value="Филиал Красноярск">Филиал Красноярск</option>
+              <option value="ЦА">ЦА</option>
+            </select>
+          </div>
+          <div class="row">
+            <select id="profileSubdivision">
+              <option value="">Выберите подразделение выше</option>
+            </select>
+            <input id="profileJobTitle" placeholder="Должность" />
+          </div>
+          <div class="row">
+            <input id="profileEmail" type="email" placeholder="email" />
+            <button class="btn btn-primary" id="saveProfileBtn">Сохранить ЛК</button>
+          </div>
+          <div class="note" id="profileStatus">Заполните профиль пользователя для более удобной работы с действиями.</div>
         </div>
       </section>
     </section>
@@ -365,6 +394,53 @@
     const actionsListEl = document.getElementById('actionsList');
     const actionStatusEl = document.getElementById('actionStatus');
 
+    const profileFullNameEl = document.getElementById('profileFullName');
+    const profileDivisionEl = document.getElementById('profileDivision');
+    const profileSubdivisionEl = document.getElementById('profileSubdivision');
+    const profileJobTitleEl = document.getElementById('profileJobTitle');
+    const profileEmailEl = document.getElementById('profileEmail');
+    const saveProfileBtn = document.getElementById('saveProfileBtn');
+    const profileStatusEl = document.getElementById('profileStatus');
+
+    const PROFILE_DEFAULT_OPTIONS = {
+      divisions: ['Филиал Уфа', 'Филиал Тюмень', 'Филиал Красноярск', 'ЦА'],
+      subdivisions_by_division: {
+        'Филиал Уфа': [
+          'АУП',
+          'ПУ БН-Добыча',
+          'ПУ Бузулук',
+          'ПУ Ижевск',
+          'ПУ новокуйбышевск',
+          'ПУ рязань',
+          'ПУ самара',
+          'ПУ сызрань',
+          'ПУ туапсе',
+          'ПУ Уфа',
+        ],
+        'Филиал Тюмень': [
+          'АУП',
+          'ПУ Губкинский',
+          'ПУ Нефтеюганск',
+          'ПУ Нижневартовск',
+          'ПУ Новый Уренгой',
+          'ПУ Тюмень',
+          'ПУ ЮНГ',
+        ],
+        'Филиал Красноярск': [
+          'АУП',
+          'ПУ Ангарск',
+          'ПУ Ачинск',
+          'ПУ Ванкор',
+          'ПУ Восток',
+          'ПУ Иркутск',
+          'ПУ Комсомольск',
+          'ПУ Славнефть',
+          'ПУ Таас-Юрях',
+        ],
+      },
+    };
+    let profileOptions = PROFILE_DEFAULT_OPTIONS;
+
     function getSessionId() {
       let value = localStorage.getItem(SESSION_KEY);
       if (value) return value;
@@ -388,6 +464,7 @@
       });
       if (viewId === 'documentsView') loadDocuments();
       if (viewId === 'actionsView') loadActions();
+      if (viewId === 'profileView') loadProfile();
     }
 
     document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -494,6 +571,120 @@
         });
       } catch (error) {
         // UI clear should still work even if backend clear fails.
+      }
+    }
+
+    function renderDivisionOptions() {
+      const selected = profileDivisionEl.value;
+      const items = profileOptions.divisions || PROFILE_DEFAULT_OPTIONS.divisions;
+      profileDivisionEl.innerHTML = `<option value="">Подразделение</option>${items.map((item) => `<option value="${item}">${item}</option>`).join('')}`;
+      if (selected && items.includes(selected)) {
+        profileDivisionEl.value = selected;
+      }
+    }
+
+    function applyProfileDivisionRules(selectedSubdivision = '') {
+      const division = profileDivisionEl.value;
+      const byDivision = profileOptions.subdivisions_by_division || PROFILE_DEFAULT_OPTIONS.subdivisions_by_division;
+      const subdivisions = byDivision[division] || [];
+      const isBranch = Boolean(division) && division !== 'ЦА';
+
+      if (!isBranch) {
+        profileSubdivisionEl.innerHTML = '<option value="">Для ЦА не требуется</option>';
+        profileSubdivisionEl.disabled = true;
+        return;
+      }
+
+      const options = subdivisions.map((item) => `<option value="${item}">${item}</option>`).join('');
+      profileSubdivisionEl.innerHTML = `<option value="">Выберите ПУ/АУП</option>${options}`;
+      profileSubdivisionEl.disabled = false;
+
+      if (selectedSubdivision && subdivisions.includes(selectedSubdivision)) {
+        profileSubdivisionEl.value = selectedSubdivision;
+      }
+    }
+
+    function applyProfileToActionRequester(profile) {
+      if (!profile || !profile.full_name) return;
+      if (!actionRequesterEl.value.trim()) {
+        actionRequesterEl.value = profile.full_name;
+      }
+    }
+
+    async function loadProfile() {
+      profileStatusEl.innerText = 'Загрузка профиля...';
+      try {
+        const response = await fetch('/api/profile');
+        const payload = await response.json();
+        const profile = payload.profile;
+        const options = payload.options || {};
+        profileOptions = {
+          divisions: options.divisions || PROFILE_DEFAULT_OPTIONS.divisions,
+          subdivisions_by_division: options.subdivisions_by_division || PROFILE_DEFAULT_OPTIONS.subdivisions_by_division,
+        };
+        renderDivisionOptions();
+
+        if (!profile) {
+          applyProfileDivisionRules();
+          profileStatusEl.innerText = 'Профиль еще не заполнен.';
+          return;
+        }
+
+        profileFullNameEl.value = profile.full_name || '';
+        profileDivisionEl.value = profile.division || '';
+        const selectedSubdivision = profile.subdivision || profile.subdivision_type || '';
+        profileJobTitleEl.value = profile.job_title || '';
+        profileEmailEl.value = profile.email || '';
+        applyProfileDivisionRules(selectedSubdivision);
+        applyProfileToActionRequester(profile);
+        profileStatusEl.innerText = 'Профиль загружен.';
+      } catch (error) {
+        profileStatusEl.innerText = `Ошибка загрузки профиля: ${error.message || error}`;
+      }
+    }
+
+    async function saveProfile() {
+      const payload = {
+        full_name: profileFullNameEl.value.trim(),
+        division: profileDivisionEl.value.trim(),
+        subdivision: profileSubdivisionEl.value.trim(),
+        job_title: profileJobTitleEl.value.trim(),
+        email: profileEmailEl.value.trim(),
+      };
+
+      if (!payload.full_name || !payload.division || !payload.job_title || !payload.email) {
+        profileStatusEl.innerText = 'Заполните ФИО, подразделение, должность и email.';
+        return;
+      }
+      if (payload.division !== 'ЦА' && !payload.subdivision) {
+        profileStatusEl.innerText = 'Для филиала укажите ПУ или АУП.';
+        return;
+      }
+
+      saveProfileBtn.disabled = true;
+      saveProfileBtn.innerText = '...';
+      profileStatusEl.innerText = 'Сохраняю...';
+
+      try {
+        const response = await fetch('/api/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          profileStatusEl.innerText = `Ошибка: ${data.detail || 'не удалось сохранить профиль.'}`;
+          return;
+        }
+
+        applyProfileToActionRequester(data.profile);
+        profileStatusEl.innerText = 'Профиль сохранен.';
+      } catch (error) {
+        profileStatusEl.innerText = `Ошибка сети: ${error.message || error}`;
+      } finally {
+        saveProfileBtn.disabled = false;
+        saveProfileBtn.innerText = 'Сохранить ЛК';
       }
     }
 
@@ -611,6 +802,8 @@
     docsFormsOnlyEl.addEventListener('change', loadDocuments);
     docsProcessEl.addEventListener('change', loadDocuments);
     createActionBtn.addEventListener('click', createAction);
+    saveProfileBtn.addEventListener('click', saveProfile);
+    profileDivisionEl.addEventListener('change', applyProfileDivisionRules);
 
     questionEl.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
@@ -628,6 +821,8 @@
 
     loadDocuments();
     loadActions();
+    applyProfileDivisionRules();
+    loadProfile();
   </script>
 </body>
 </html>

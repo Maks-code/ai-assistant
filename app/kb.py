@@ -182,6 +182,12 @@ QUERY_NOISE_TOKENS = {
     "хот",
     "пожалуйста",
     "please",
+    "должен",
+    "должн",
+    "следует",
+    "надо",
+    "must",
+    "should",
 }
 
 # Canonical semantic tags (syn:...) let us match paraphrases at scale
@@ -209,6 +215,12 @@ SYNONYM_GROUPS = {
         "администратор",
         "администраторы",
         "специалист",
+        "ответственный",
+        "контрагент",
+        "контрагенты",
+        "подрядчик",
+        "подрядчики",
+        "цдс",
         "specialist",
         "participant",
         "participants",
@@ -216,6 +228,7 @@ SYNONYM_GROUPS = {
         "actors",
         "role",
         "roles",
+        "contractor",
     },
     "status": {
         "статус",
@@ -257,15 +270,38 @@ SYNONYM_GROUPS = {
         "issue",
         "issues",
     },
+    "approval_action": {
+        "акцепт",
+        "акцептовать",
+        "акцептует",
+        "акцептировать",
+        "подтверждение",
+        "подтвердить",
+        "approve",
+        "approval",
+    },
+    "assignment_action": {
+        "назначить",
+        "назначает",
+        "назначение",
+        "назначен",
+        "назначены",
+        "assign",
+        "assigned",
+    },
 }
 
 ROLE_SPECIFIC_TERMS_RAW = {
+    "цдс",
     "заявитель",
     "заказчик",
     "диспетчер",
     "контроллер",
     "администратор",
     "специалист",
+    "ответственный",
+    "подрядчик",
+    "контрагент",
     "редактор",
     "исполнитель",
     "водитель",
@@ -499,6 +535,14 @@ class KnowledgeBaseIndex:
 
     def detect_process_hint(self, query: str) -> str | None:
         return self._detect_process_hint(self._query_tokens(query))
+
+    def query_tokens(self, query: str) -> set[str]:
+        return set(self._query_tokens(query))
+
+    def process_token_set(self, process: str | None) -> set[str]:
+        if not process:
+            return set()
+        return set(self.process_tokens.get(process, set()))
 
     def classify_query_intent(self, query: str) -> str:
         query_lower = query.lower().strip()
