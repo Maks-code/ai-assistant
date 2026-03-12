@@ -263,13 +263,146 @@
       margin-top: -2px;
     }
 
+    .form-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      max-width: 420px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #103d2f;
+      color: #fff;
+      box-shadow: 0 10px 26px rgba(16, 33, 29, 0.22);
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 999;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast.error {
+      background: #7a1b1b;
+    }
+
+    .manager-filters {
+      grid-template-columns: repeat(6, minmax(120px, 1fr));
+    }
+
+    .status-actions {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .status-btn {
+      padding: 6px 10px;
+      font-size: 12px;
+      min-width: 0;
+    }
+
+    .status-btn.is-active {
+      background: #dcefe9;
+      color: #155442;
+      border: 1px solid #b9ddd2;
+      cursor: default;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+    }
+
+    .kpi-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+      padding: 10px 12px;
+    }
+
+    .kpi-card .label {
+      color: var(--subtle);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .kpi-card .value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #12342a;
+    }
+
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .bar-list {
+      margin-top: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 1fr 1.5fr 38px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .bar-label {
+      font-size: 12px;
+      color: #314151;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .bar-track {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: #e7edf3;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #0e7a5f, #0f95aa);
+    }
+
+    .bar-value {
+      text-align: right;
+      font-size: 12px;
+      color: #20303f;
+      font-weight: 600;
+    }
+
     @media (max-width: 760px) {
       .app { margin: 0; border-radius: 0; border: 0; }
       .controls { flex-direction: column; }
       .filters { grid-template-columns: 1fr; }
+      .manager-filters { grid-template-columns: 1fr; }
       .row { grid-template-columns: 1fr; }
       .messages, .panel-content { max-height: none; min-height: 55vh; }
       .btn, .controls button { width: 100%; }
+      .bar-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -284,6 +417,9 @@
       <button class="tab-btn active" data-view="chatView">Чат</button>
       <button class="tab-btn" data-view="documentsView">Документы</button>
       <button class="tab-btn" data-view="actionsView">Действия</button>
+      <button class="tab-btn" data-view="managerView">Кабинет блока</button>
+      <button class="tab-btn" data-view="dashboardView">Дашборд</button>
+      <button class="tab-btn" data-view="adminKbView">Админ KB</button>
       <button class="tab-btn" data-view="profileView">ЛК</button>
     </section>
 
@@ -317,6 +453,21 @@
     <section class="view" id="actionsView">
       <section class="panel-content">
         <div class="action-form">
+          <div class="form-title">Анонимное обращение</div>
+          <div class="row">
+            <select id="appealTopic">
+              <option value="">Выберите тему обращения</option>
+            </select>
+            <button class="btn btn-primary" id="createAppealBtn">Зарегистрировать обращение</button>
+          </div>
+          <select id="appealPu">
+            <option value="">Выберите наименование ПУ</option>
+          </select>
+          <textarea id="appealDetails" rows="4" placeholder="Опишите суть обращения"></textarea>
+          <div class="note" id="appealStatus">ПУ подставляется из профиля автоматически. Если в профиле ПУ не указан, выберите его вручную из списка.</div>
+        </div>
+        <div class="action-form">
+          <div class="form-title">Прочие действия (MVP)</div>
           <div class="row">
             <select id="actionType">
               <option value="transport_request">Заявка на транспорт</option>
@@ -369,7 +520,73 @@
         </div>
       </section>
     </section>
+
+    <section class="view" id="managerView">
+      <section class="filters manager-filters">
+        <select id="managerBlockFilter">
+          <option value="">Все блоки</option>
+        </select>
+        <select id="managerTopicFilter">
+          <option value="">Все темы</option>
+        </select>
+        <select id="managerStatusFilter">
+          <option value="">Все статусы</option>
+        </select>
+        <input id="managerDateFrom" type="date" />
+        <input id="managerDateTo" type="date" />
+        <button class="btn btn-soft" id="managerRefreshBtn">Обновить</button>
+      </section>
+      <section class="panel-content" id="managerAppealsList"></section>
+    </section>
+
+    <section class="view" id="dashboardView">
+      <section class="filters manager-filters">
+        <select id="dashboardPeriod">
+          <option value="30">Период: 30 дней</option>
+          <option value="60">Период: 60 дней</option>
+          <option value="90">Период: 90 дней</option>
+          <option value="180">Период: 180 дней</option>
+        </select>
+        <div class="note">Данные по анонимным обращениям для комиссии.</div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <button class="btn btn-soft" id="dashboardRefreshBtn">Обновить</button>
+      </section>
+      <section class="panel-content">
+        <div class="kpi-grid" id="dashboardKpi"></div>
+        <div class="charts-grid">
+          <div class="card">
+            <strong>Обращения по блокам</strong>
+            <div class="bar-list" id="chartByBlock"></div>
+          </div>
+          <div class="card">
+            <strong>Статусы обращений</strong>
+            <div class="bar-list" id="chartByStatus"></div>
+          </div>
+          <div class="card">
+            <strong>Топ тем обращений</strong>
+            <div class="bar-list" id="chartByTopic"></div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="view" id="adminKbView">
+      <section class="filters manager-filters">
+        <select id="adminFallbackStatusFilter">
+          <option value="">Все статусы</option>
+        </select>
+        <input id="adminFallbackDateFrom" type="date" />
+        <input id="adminFallbackDateTo" type="date" />
+        <div class="note">Здесь отображаются fallback-запросы из чата без ответа в БЗ.</div>
+        <div></div>
+        <button class="btn btn-soft" id="adminFallbackRefreshBtn">Обновить</button>
+      </section>
+      <section class="panel-content" id="adminFallbacksList"></section>
+    </section>
   </main>
+  <div id="toast" class="toast"></div>
 
   <script>
     const SESSION_KEY = 'assistant_session_id';
@@ -384,6 +601,33 @@
     const docsFormsOnlyEl = document.getElementById('docsFormsOnly');
     const docsRefreshBtn = document.getElementById('docsRefreshBtn');
     const documentsListEl = document.getElementById('documentsList');
+
+    const appealTopicEl = document.getElementById('appealTopic');
+    const appealPuEl = document.getElementById('appealPu');
+    const appealDetailsEl = document.getElementById('appealDetails');
+    const createAppealBtn = document.getElementById('createAppealBtn');
+    const appealStatusEl = document.getElementById('appealStatus');
+
+    const managerBlockFilterEl = document.getElementById('managerBlockFilter');
+    const managerTopicFilterEl = document.getElementById('managerTopicFilter');
+    const managerStatusFilterEl = document.getElementById('managerStatusFilter');
+    const managerDateFromEl = document.getElementById('managerDateFrom');
+    const managerDateToEl = document.getElementById('managerDateTo');
+    const managerRefreshBtn = document.getElementById('managerRefreshBtn');
+    const managerAppealsListEl = document.getElementById('managerAppealsList');
+
+    const dashboardPeriodEl = document.getElementById('dashboardPeriod');
+    const dashboardRefreshBtn = document.getElementById('dashboardRefreshBtn');
+    const dashboardKpiEl = document.getElementById('dashboardKpi');
+    const chartByBlockEl = document.getElementById('chartByBlock');
+    const chartByStatusEl = document.getElementById('chartByStatus');
+    const chartByTopicEl = document.getElementById('chartByTopic');
+
+    const adminFallbackStatusFilterEl = document.getElementById('adminFallbackStatusFilter');
+    const adminFallbackDateFromEl = document.getElementById('adminFallbackDateFrom');
+    const adminFallbackDateToEl = document.getElementById('adminFallbackDateTo');
+    const adminFallbackRefreshBtn = document.getElementById('adminFallbackRefreshBtn');
+    const adminFallbacksListEl = document.getElementById('adminFallbacksList');
 
     const actionTypeEl = document.getElementById('actionType');
     const actionProcessEl = document.getElementById('actionProcess');
@@ -401,6 +645,7 @@
     const profileEmailEl = document.getElementById('profileEmail');
     const saveProfileBtn = document.getElementById('saveProfileBtn');
     const profileStatusEl = document.getElementById('profileStatus');
+    const toastEl = document.getElementById('toast');
 
     const PROFILE_DEFAULT_OPTIONS = {
       divisions: ['Филиал Уфа', 'Филиал Тюмень', 'Филиал Красноярск', 'ЦА'],
@@ -440,6 +685,9 @@
       },
     };
     let profileOptions = PROFILE_DEFAULT_OPTIONS;
+    let managerFiltersCache = { blocks: [], topics: [], statuses: [] };
+    let adminFallbackFiltersCache = { statuses: [] };
+    let appealPuOptions = [];
 
     function getSessionId() {
       let value = localStorage.getItem(SESSION_KEY);
@@ -455,6 +703,88 @@
       return div.innerHTML;
     }
 
+    let toastTimer = null;
+    function showToast(message, isError = false) {
+      if (!toastEl) return;
+      toastEl.innerText = message || '';
+      toastEl.classList.toggle('error', Boolean(isError));
+      toastEl.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl.classList.remove('show');
+        toastEl.classList.remove('error');
+      }, 3500);
+    }
+
+    function formatDateTime(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString('ru-RU');
+    }
+
+    function setSelectOptions(selectEl, options, valueKey, labelKey, placeholder, selectedValue = '') {
+      if (!selectEl) return;
+      const safeSelected = selectedValue || selectEl.value || '';
+      const lines = [`<option value="">${escapeHtml(placeholder)}</option>`];
+      (options || []).forEach((item) => {
+        lines.push(
+          `<option value="${escapeHtml(item[valueKey] || '')}">${escapeHtml(item[labelKey] || '')}</option>`,
+        );
+      });
+      selectEl.innerHTML = lines.join('');
+      if (safeSelected && (options || []).some((item) => String(item[valueKey]) === safeSelected)) {
+        selectEl.value = safeSelected;
+      }
+    }
+
+    function collectPuOptionsFromProfileOptions() {
+      const byDivision = profileOptions.subdivisions_by_division || {};
+      const all = [];
+      Object.values(byDivision).forEach((items) => {
+        (items || []).forEach((item) => {
+          const value = String(item || '').trim();
+          if (value.toLowerCase().startsWith('пу ')) {
+            all.push(value);
+          }
+        });
+      });
+      return Array.from(new Set(all)).sort((a, b) => a.localeCompare(b, 'ru'));
+    }
+
+    function renderAppealPuOptions(selectedValue = '') {
+      if (!appealPuEl) return;
+      const options = appealPuOptions.length ? appealPuOptions : collectPuOptionsFromProfileOptions();
+      const selected = selectedValue || appealPuEl.value || '';
+      appealPuEl.innerHTML = [
+        '<option value="">Выберите наименование ПУ</option>',
+        ...options.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`),
+      ].join('');
+      if (selected && options.includes(selected)) {
+        appealPuEl.value = selected;
+      }
+    }
+
+    function renderBarList(targetEl, items, emptyText = 'Нет данных') {
+      if (!targetEl) return;
+      if (!items || !items.length) {
+        targetEl.innerHTML = `<div class="empty">${escapeHtml(emptyText)}</div>`;
+        return;
+      }
+      const maxValue = Math.max(...items.map((item) => Number(item.count || 0)), 1);
+      targetEl.innerHTML = items.map((item) => {
+        const count = Number(item.count || 0);
+        const width = Math.max(6, Math.round((count / maxValue) * 100));
+        return `
+          <div class="bar-row">
+            <div class="bar-label" title="${escapeHtml(item.name || '')}">${escapeHtml(item.name || '')}</div>
+            <div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div>
+            <div class="bar-value">${escapeHtml(String(count))}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
     function switchView(viewId) {
       document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.view === viewId);
@@ -463,7 +793,13 @@
         view.classList.toggle('active', view.id === viewId);
       });
       if (viewId === 'documentsView') loadDocuments();
-      if (viewId === 'actionsView') loadActions();
+      if (viewId === 'actionsView') {
+        loadAppealTopics();
+        loadActions();
+      }
+      if (viewId === 'managerView') loadManagerAppeals();
+      if (viewId === 'dashboardView') loadAppealsDashboard();
+      if (viewId === 'adminKbView') loadAdminFallbacks();
       if (viewId === 'profileView') loadProfile();
     }
 
@@ -611,6 +947,20 @@
       }
     }
 
+    function applyProfilePuToAppeal(profile) {
+      if (!appealPuEl || !profile) return;
+      const subdivision = String(profile.subdivision || profile.subdivision_type || '').trim();
+      if (!subdivision.toLowerCase().startsWith('пу ')) {
+        return;
+      }
+      if (!appealPuOptions.includes(subdivision)) {
+        appealPuOptions = Array.from(new Set([...appealPuOptions, subdivision])).sort((a, b) => a.localeCompare(b, 'ru'));
+        renderAppealPuOptions(subdivision);
+        return;
+      }
+      appealPuEl.value = subdivision;
+    }
+
     async function loadProfile() {
       profileStatusEl.innerText = 'Загрузка профиля...';
       try {
@@ -623,6 +973,7 @@
           subdivisions_by_division: options.subdivisions_by_division || PROFILE_DEFAULT_OPTIONS.subdivisions_by_division,
         };
         renderDivisionOptions();
+        renderAppealPuOptions();
 
         if (!profile) {
           applyProfileDivisionRules();
@@ -637,6 +988,7 @@
         profileEmailEl.value = profile.email || '';
         applyProfileDivisionRules(selectedSubdivision);
         applyProfileToActionRequester(profile);
+        applyProfilePuToAppeal(profile);
         profileStatusEl.innerText = 'Профиль загружен.';
       } catch (error) {
         profileStatusEl.innerText = `Ошибка загрузки профиля: ${error.message || error}`;
@@ -679,6 +1031,7 @@
         }
 
         applyProfileToActionRequester(data.profile);
+        applyProfilePuToAppeal(data.profile);
         profileStatusEl.innerText = 'Профиль сохранен.';
       } catch (error) {
         profileStatusEl.innerText = `Ошибка сети: ${error.message || error}`;
@@ -725,6 +1078,326 @@
         }).join('');
       } catch (error) {
         documentsListEl.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(error.message || error)}</div>`;
+      }
+    }
+
+    async function loadAppealTopics() {
+      if (!appealTopicEl) return;
+      const prevValue = appealTopicEl.value;
+      appealStatusEl.innerText = 'Загружаю темы обращений...';
+
+      try {
+        const response = await fetch('/api/appeals/topics');
+        const payload = await response.json();
+        const topics = payload.topics || [];
+        const puOptions = payload.pu_options || [];
+        appealPuOptions = Array.from(new Set(
+          puOptions
+            .map((item) => String(item.pu_name || '').trim())
+            .filter((item) => item),
+        )).sort((a, b) => a.localeCompare(b, 'ru'));
+        renderAppealPuOptions();
+
+        if (!topics.length) {
+          appealTopicEl.innerHTML = '<option value="">Темы пока не настроены</option>';
+          appealStatusEl.innerText = 'Темы обращений не настроены.';
+          return;
+        }
+
+        appealTopicEl.innerHTML = [
+          '<option value="">Выберите тему обращения</option>',
+          ...topics.map((item) => `<option value="${escapeHtml(item.topic_id)}">${escapeHtml(item.topic_name)} (${escapeHtml(item.block_name)})</option>`),
+        ].join('');
+
+        if (prevValue && topics.some((item) => item.topic_id === prevValue)) {
+          appealTopicEl.value = prevValue;
+        }
+        appealStatusEl.innerText = 'Выберите тему и зарегистрируйте обращение.';
+      } catch (error) {
+        appealStatusEl.innerText = `Ошибка загрузки тем: ${error.message || error}`;
+      }
+    }
+
+    async function createAnonymousAppeal() {
+      const payload = {
+        topic_id: appealTopicEl.value.trim(),
+        pu_name: appealPuEl.value.trim(),
+        details: appealDetailsEl.value.trim(),
+      };
+
+      if (!payload.topic_id || !payload.details || !payload.pu_name) {
+        appealStatusEl.innerText = 'Выберите тему, наименование ПУ и заполните описание.';
+        showToast('Не удалось зарегистрировать обращение: тема, ПУ и описание обязательны.', true);
+        return;
+      }
+
+      createAppealBtn.disabled = true;
+      createAppealBtn.innerText = '...';
+      appealStatusEl.innerText = 'Регистрирую обращение...';
+
+      try {
+        const response = await fetch('/api/appeals/anonymous', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          const detail = data.detail || 'не удалось зарегистрировать обращение.';
+          appealStatusEl.innerText = `Ошибка: ${detail}`;
+          showToast(`Ошибка: ${detail}`, true);
+          return;
+        }
+
+        const blockName = data.action && data.action.routing_block ? data.action.routing_block : 'целевого блока';
+        appealStatusEl.innerText = `Обращение зарегистрировано и направлено в ${blockName}. ID: ${data.action.action_id}`;
+        appealDetailsEl.value = '';
+        showToast(data.message || 'Обращение зарегистрировано и направлено.');
+        await Promise.all([loadActions(), loadManagerAppeals(), loadAppealsDashboard()]);
+      } catch (error) {
+        appealStatusEl.innerText = `Ошибка сети: ${error.message || error}`;
+        showToast(`Ошибка сети: ${error.message || error}`, true);
+      } finally {
+        createAppealBtn.disabled = false;
+        createAppealBtn.innerText = 'Зарегистрировать обращение';
+      }
+    }
+
+    async function updateAppealStatus(actionId, nextStatus) {
+      if (!actionId || !nextStatus) return;
+
+      let comment = '';
+      if (nextStatus === 'Нужны уточнения') {
+        comment = window.prompt('Уточнение для обращения (опционально):', '') || '';
+      }
+
+      try {
+        const response = await fetch(`/api/appeals/${encodeURIComponent(actionId)}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: nextStatus, comment }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          showToast(`Ошибка: ${data.detail || 'не удалось обновить статус'}`, true);
+          return;
+        }
+
+        showToast(`Статус обновлен: ${nextStatus}`);
+        await Promise.all([loadManagerAppeals(), loadActions(), loadAppealsDashboard()]);
+      } catch (error) {
+        showToast(`Ошибка сети: ${error.message || error}`, true);
+      }
+    }
+
+    async function loadManagerAppeals() {
+      if (!managerAppealsListEl) return;
+      managerAppealsListEl.innerHTML = '<div class="empty">Загрузка обращений...</div>';
+
+      try {
+        const params = new URLSearchParams();
+        if (managerBlockFilterEl.value.trim()) params.set('block_id', managerBlockFilterEl.value.trim());
+        if (managerTopicFilterEl.value.trim()) params.set('topic_id', managerTopicFilterEl.value.trim());
+        if (managerStatusFilterEl.value.trim()) params.set('status', managerStatusFilterEl.value.trim());
+        if (managerDateFromEl.value) params.set('date_from', managerDateFromEl.value);
+        if (managerDateToEl.value) params.set('date_to', managerDateToEl.value);
+        params.set('limit', '150');
+
+        const response = await fetch(`/api/appeals/manager?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok) {
+          managerAppealsListEl.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(payload.detail || 'не удалось получить обращения')}</div>`;
+          return;
+        }
+
+        const filters = payload.filters || {};
+        managerFiltersCache = {
+          blocks: filters.blocks || [],
+          topics: filters.topics || [],
+          statuses: (filters.statuses || []).map((name) => ({ value: name, label: name })),
+        };
+
+        setSelectOptions(managerBlockFilterEl, managerFiltersCache.blocks, 'block_id', 'block_name', 'Все блоки');
+        setSelectOptions(managerTopicFilterEl, managerFiltersCache.topics, 'topic_id', 'topic_name', 'Все темы');
+        setSelectOptions(managerStatusFilterEl, managerFiltersCache.statuses, 'value', 'label', 'Все статусы');
+
+        const appeals = payload.appeals || [];
+        if (!appeals.length) {
+          managerAppealsListEl.innerHTML = '<div class="empty">Обращения по фильтру не найдены.</div>';
+          return;
+        }
+
+        managerAppealsListEl.innerHTML = appeals.map((item) => {
+          const statusButtons = [
+            { status: 'В работе', label: 'В работу' },
+            { status: 'Нужны уточнения', label: 'Нужны данные' },
+            { status: 'Закрыто', label: 'Закрыть' },
+          ].map((button) => {
+            const activeClass = item.status === button.status ? 'is-active' : '';
+            const disabledAttr = item.status === button.status ? 'disabled' : '';
+            return `<button class="btn btn-soft status-btn ${activeClass}" data-action-id="${escapeHtml(item.action_id)}" data-next-status="${escapeHtml(button.status)}" ${disabledAttr}>${escapeHtml(button.label)}</button>`;
+          }).join('');
+
+          const statusComment = item.status_comment
+            ? `<div class="meta">Комментарий статуса: ${escapeHtml(item.status_comment)}</div>`
+            : '';
+
+          return `
+            <div class="doc-item">
+              <div><strong>${escapeHtml(item.topic_name || item.title || 'Обращение')}</strong> <span class="badge">${escapeHtml(item.status || '')}</span></div>
+              <div class="meta">${escapeHtml(item.action_id || '')} | ${escapeHtml(item.routing_block || '')} | ПУ: ${escapeHtml(item.pu_name || 'не указан')}</div>
+              <div class="meta">${escapeHtml(item.details || '')}</div>
+              <div class="meta">Поступило: ${escapeHtml(formatDateTime(item.created_at))}</div>
+              ${statusComment}
+              <div class="status-actions">${statusButtons}</div>
+            </div>
+          `;
+        }).join('');
+
+        managerAppealsListEl.querySelectorAll('[data-next-status]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const actionId = button.getAttribute('data-action-id');
+            const nextStatus = button.getAttribute('data-next-status');
+            updateAppealStatus(actionId || '', nextStatus || '');
+          });
+        });
+      } catch (error) {
+        managerAppealsListEl.innerHTML = `<div class="empty">Ошибка сети: ${escapeHtml(error.message || error)}</div>`;
+      }
+    }
+
+    async function loadAppealsDashboard() {
+      if (!dashboardKpiEl) return;
+      dashboardKpiEl.innerHTML = '<div class="empty">Загрузка метрик...</div>';
+      renderBarList(chartByBlockEl, [], 'Загрузка...');
+      renderBarList(chartByStatusEl, [], 'Загрузка...');
+      renderBarList(chartByTopicEl, [], 'Загрузка...');
+
+      try {
+        const days = dashboardPeriodEl.value || '30';
+        const response = await fetch(`/api/dashboard/appeals?days=${encodeURIComponent(days)}`);
+        const payload = await response.json();
+        if (!response.ok) {
+          dashboardKpiEl.innerHTML = `<div class="empty">Ошибка загрузки дашборда: ${escapeHtml(payload.detail || 'не удалось получить данные')}</div>`;
+          return;
+        }
+
+        const metrics = payload.metrics || {};
+        const avgClose = metrics.avg_close_hours == null ? '—' : `${metrics.avg_close_hours} ч`;
+
+        dashboardKpiEl.innerHTML = `
+          <div class="kpi-card"><div class="label">Всего за период</div><div class="value">${escapeHtml(String(metrics.total || 0))}</div></div>
+          <div class="kpi-card"><div class="label">Закрыто</div><div class="value">${escapeHtml(String(metrics.closed || 0))}</div></div>
+          <div class="kpi-card"><div class="label">В работе</div><div class="value">${escapeHtml(String(metrics.in_progress || 0))}</div></div>
+          <div class="kpi-card"><div class="label">Нужны уточнения</div><div class="value">${escapeHtml(String(metrics.clarification || 0))}</div></div>
+          <div class="kpi-card"><div class="label">Доля закрытых</div><div class="value">${escapeHtml(String(metrics.closure_rate_percent || 0))}%</div></div>
+          <div class="kpi-card"><div class="label">Среднее закрытие</div><div class="value">${escapeHtml(avgClose)}</div></div>
+        `;
+
+        renderBarList(chartByBlockEl, payload.by_block || [], 'Нет данных по блокам.');
+        renderBarList(chartByStatusEl, payload.by_status || [], 'Нет данных по статусам.');
+        renderBarList(chartByTopicEl, payload.by_topic || [], 'Нет данных по темам.');
+      } catch (error) {
+        dashboardKpiEl.innerHTML = `<div class="empty">Ошибка сети: ${escapeHtml(error.message || error)}</div>`;
+      }
+    }
+
+    async function updateAdminFallbackStatus(actionId, nextStatus) {
+      if (!actionId || !nextStatus) return;
+
+      let comment = '';
+      if (nextStatus === 'В работе') {
+        comment = window.prompt('Комментарий (опционально):', '') || '';
+      }
+
+      try {
+        const response = await fetch(`/api/admin/fallbacks/${encodeURIComponent(actionId)}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: nextStatus, comment }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          showToast(`Ошибка: ${payload.detail || 'не удалось обновить статус'}`, true);
+          return;
+        }
+        showToast(`Статус fallback-обращения обновлен: ${nextStatus}`);
+        await loadAdminFallbacks();
+      } catch (error) {
+        showToast(`Ошибка сети: ${error.message || error}`, true);
+      }
+    }
+
+    async function loadAdminFallbacks() {
+      if (!adminFallbacksListEl) return;
+      adminFallbacksListEl.innerHTML = '<div class="empty">Загрузка fallback-обращений...</div>';
+
+      try {
+        const params = new URLSearchParams();
+        if (adminFallbackStatusFilterEl.value.trim()) params.set('status', adminFallbackStatusFilterEl.value.trim());
+        if (adminFallbackDateFromEl.value) params.set('date_from', adminFallbackDateFromEl.value);
+        if (adminFallbackDateToEl.value) params.set('date_to', adminFallbackDateToEl.value);
+        params.set('limit', '300');
+
+        const response = await fetch(`/api/admin/fallbacks?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok) {
+          adminFallbacksListEl.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(payload.detail || 'не удалось получить данные')}</div>`;
+          return;
+        }
+
+        const filters = payload.filters || {};
+        adminFallbackFiltersCache = {
+          statuses: (filters.statuses || []).map((name) => ({ value: name, label: name })),
+        };
+        setSelectOptions(adminFallbackStatusFilterEl, adminFallbackFiltersCache.statuses, 'value', 'label', 'Все статусы');
+
+        const items = payload.fallbacks || [];
+        if (!items.length) {
+          adminFallbacksListEl.innerHTML = '<div class="empty">Пока нет fallback-обращений.</div>';
+          return;
+        }
+
+        adminFallbacksListEl.innerHTML = items.map((item) => {
+          const statusButtons = [
+            { status: 'Новая', label: 'Новая' },
+            { status: 'В работе', label: 'В работу' },
+            { status: 'Закрыто', label: 'Закрыть' },
+          ].map((button) => {
+            const activeClass = item.status === button.status ? 'is-active' : '';
+            const disabledAttr = item.status === button.status ? 'disabled' : '';
+            return `<button class="btn btn-soft status-btn ${activeClass}" data-fallback-id="${escapeHtml(item.action_id)}" data-fallback-status="${escapeHtml(button.status)}" ${disabledAttr}>${escapeHtml(button.label)}</button>`;
+          }).join('');
+
+          const occurrences = Number(item.occurrences || 1);
+          const signature = String(item.gap_signature || '').trim();
+          const statusComment = item.status_comment
+            ? `<div class="meta">Комментарий: ${escapeHtml(item.status_comment)}</div>`
+            : '';
+
+          return `
+            <div class="doc-item">
+              <div><strong>${escapeHtml(item.title || 'Fallback-обращение')}</strong> <span class="badge">${escapeHtml(item.status || '')}</span></div>
+              <div class="meta">${escapeHtml(item.action_id || '')} | Повторов: ${escapeHtml(String(occurrences))}</div>
+              <div class="meta">Последний раз: ${escapeHtml(formatDateTime(item.last_seen_at || item.created_at))}</div>
+              <div class="meta">Запрос: ${escapeHtml(item.details || '')}</div>
+              ${signature ? `<div class="meta">Сигнатура: ${escapeHtml(signature)}</div>` : ''}
+              ${statusComment}
+              <div class="status-actions">${statusButtons}</div>
+            </div>
+          `;
+        }).join('');
+
+        adminFallbacksListEl.querySelectorAll('[data-fallback-status]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const actionId = button.getAttribute('data-fallback-id') || '';
+            const nextStatus = button.getAttribute('data-fallback-status') || '';
+            updateAdminFallbackStatus(actionId, nextStatus);
+          });
+        });
+      } catch (error) {
+        adminFallbacksListEl.innerHTML = `<div class="empty">Ошибка сети: ${escapeHtml(error.message || error)}</div>`;
       }
     }
 
@@ -783,14 +1456,28 @@
           return;
         }
 
-        actionsListEl.innerHTML = items.map((item) => `
-          <div class="doc-item">
-            <div><strong>${escapeHtml(item.title)}</strong> <span class="badge">${escapeHtml(item.status)}</span></div>
-            <div class="meta">${escapeHtml(item.action_id)} | ${escapeHtml(item.process)} | ${escapeHtml(item.action_type)}</div>
-            <div class="meta">${escapeHtml(item.details)}</div>
-            <div class="meta">Инициатор: ${escapeHtml(item.requester)} | ${escapeHtml(item.created_at)}</div>
-          </div>
-        `).join('');
+        actionsListEl.innerHTML = items.map((item) => {
+          const routingInfo = item.routing_block
+            ? `<div class="meta">Маршрутизация: ${escapeHtml(item.routing_block)}${item.recipient_email ? ` | ${escapeHtml(item.recipient_email)}` : ''}</div>`
+            : '';
+          const puInfo = item.pu_name
+            ? `<div class="meta">ПУ: ${escapeHtml(item.pu_name)}</div>`
+            : '';
+          const requesterInfo = item.is_anonymous
+            ? ''
+            : `<div class="meta">Инициатор: ${escapeHtml(item.requester || 'Не указан')}</div>`;
+          return `
+            <div class="doc-item">
+              <div><strong>${escapeHtml(item.title)}</strong> <span class="badge">${escapeHtml(item.status)}</span></div>
+              <div class="meta">${escapeHtml(item.action_id)} | ${escapeHtml(item.process)} | ${escapeHtml(item.action_type)}</div>
+              <div class="meta">${escapeHtml(item.details || '')}</div>
+              ${routingInfo}
+              ${puInfo}
+              ${requesterInfo}
+              <div class="meta">${escapeHtml(item.created_at || '')}</div>
+            </div>
+          `;
+        }).join('');
       } catch (error) {
         actionsListEl.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(error.message || error)}</div>`;
       }
@@ -801,6 +1488,19 @@
     docsRefreshBtn.addEventListener('click', loadDocuments);
     docsFormsOnlyEl.addEventListener('change', loadDocuments);
     docsProcessEl.addEventListener('change', loadDocuments);
+    createAppealBtn.addEventListener('click', createAnonymousAppeal);
+    managerRefreshBtn.addEventListener('click', loadManagerAppeals);
+    managerBlockFilterEl.addEventListener('change', loadManagerAppeals);
+    managerTopicFilterEl.addEventListener('change', loadManagerAppeals);
+    managerStatusFilterEl.addEventListener('change', loadManagerAppeals);
+    managerDateFromEl.addEventListener('change', loadManagerAppeals);
+    managerDateToEl.addEventListener('change', loadManagerAppeals);
+    dashboardRefreshBtn.addEventListener('click', loadAppealsDashboard);
+    dashboardPeriodEl.addEventListener('change', loadAppealsDashboard);
+    adminFallbackRefreshBtn.addEventListener('click', loadAdminFallbacks);
+    adminFallbackStatusFilterEl.addEventListener('change', loadAdminFallbacks);
+    adminFallbackDateFromEl.addEventListener('change', loadAdminFallbacks);
+    adminFallbackDateToEl.addEventListener('change', loadAdminFallbacks);
     createActionBtn.addEventListener('click', createAction);
     saveProfileBtn.addEventListener('click', saveProfile);
     profileDivisionEl.addEventListener('change', applyProfileDivisionRules);
@@ -820,7 +1520,11 @@
     });
 
     loadDocuments();
+    loadAppealTopics();
     loadActions();
+    loadManagerAppeals();
+    loadAppealsDashboard();
+    loadAdminFallbacks();
     applyProfileDivisionRules();
     loadProfile();
   </script>

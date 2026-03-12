@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 
@@ -9,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.appeals_catalog import APPEAL_BLOCKS, APPEAL_TOPICS, list_topics_for_ui, resolve_topic
 from app.actions import ActionsStore
 from app.config import load_settings
 from app.dialog_state import DialogStateStore
@@ -55,6 +57,22 @@ class ActionCreateRequest(BaseModel):
     title: str = Field(..., min_length=2)
     details: str = Field(..., min_length=2)
     requester: str = Field(default="")
+
+
+class AnonymousAppealCreateRequest(BaseModel):
+    topic_id: str = Field(..., min_length=3, max_length=80)
+    details: str = Field(..., min_length=3, max_length=2000)
+    pu_name: str = Field(default="", max_length=120)
+
+
+class AppealStatusUpdateRequest(BaseModel):
+    status: str = Field(..., min_length=2, max_length=64)
+    comment: str = Field(default="", max_length=500)
+
+
+class AdminFallbackStatusUpdateRequest(BaseModel):
+    status: str = Field(..., min_length=2, max_length=64)
+    comment: str = Field(default="", max_length=500)
 
 
 class DialogClearRequest(BaseModel):
@@ -223,6 +241,51 @@ ROLE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+APPEAL_ALLOWED_STATUSES = (
+    "Зарегистрировано",
+    "В работе",
+    "Нужны уточнения",
+    "Закрыто",
+)
+ADMIN_FALLBACK_ALLOWED_STATUSES = (
+    "Новая",
+    "В работе",
+    "Закрыто",
+)
+KB_GAP_ROUTING_BLOCK = "Администратор базы знаний"
+KB_GAP_RECIPIENT_EMAIL = "admin_kb@mail.ru"
+KB_GAP_DEDUP_HOURS = 24
+KB_GAP_STOPWORDS = {
+    "как",
+    "что",
+    "где",
+    "когда",
+    "чтобы",
+    "или",
+    "для",
+    "это",
+    "нет",
+    "база",
+    "базе",
+    "базы",
+    "знаний",
+    "информация",
+    "инфы",
+    "процесс",
+    "процесса",
+    "процессе",
+}
+AVAILABLE_PU_NAMES = tuple(
+    sorted(
+        {
+            subdivision.strip()
+            for subdivisions in BRANCH_SUBDIVISIONS.values()
+            for subdivision in subdivisions
+            if subdivision.strip().lower().startswith("пу ")
+        }
+    )
+)
+AVAILABLE_PU_LOOKUP = {item.casefold(): item for item in AVAILABLE_PU_NAMES}
 
 
 def _profile_to_dict(profile: UserProfile) -> dict[str, str]:
@@ -379,6 +442,83 @@ def _source_extension(source: dict) -> str:
 def _source_process(source: dict) -> str:
     relative_path = str(source.get("relative_path", ""))
     return relative_path.split("/", 1)[0] if "/" in relative_path else "Общее"
+
+
+def _serialize_action_for_ui(action: dict) -> dict:
+    payload = dict(action)
+    if payload.get("is_anonymous"):
+        payload.pop("requester", None)
+    return payload
+
+
+def _normalize_pu_name(raw_value: str | None) -> str:
+    value = (raw_value or "").strip()
+    if not value:
+        return ""
+    return AVAILABLE_PU_LOOKUP.get(value.casefold(), "")
+
+
+def _build_gap_signature(question: str) -> str:
+    tokens = [token.casefold() for token in re.findall(r"[A-Za-zА-Яа-яЁё0-9]+", question)]
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if len(token) < 3:
+            continue
+        if token in KB_GAP_STOPWORDS:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        filtered.append(token)
+        if len(filtered) >= 24:
+            break
+
+    if filtered:
+        return " ".join(filtered)[:280]
+
+    normalized = re.sub(r"\s+", " ", question.casefold()).strip()
+    return normalized[:280]
+
+
+def _register_kb_gap_from_chat(question: str) -> None:
+    signature = _build_gap_signature(question)
+    if not signature:
+        return
+    actions_store.upsert_kb_gap(
+        question=question,
+        signature=signature,
+        routing_block=KB_GAP_ROUTING_BLOCK,
+        recipient_email=KB_GAP_RECIPIENT_EMAIL,
+        window_hours=KB_GAP_DEDUP_HOURS,
+    )
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _anonymous_appeals(limit: int = 2000) -> list[dict]:
+    items = actions_store.list_actions(limit=limit)
+    return [item for item in items if item.get("action_type") == "anonymous_appeal"]
+
+
+def _kb_gap_actions(limit: int = 5000) -> list[dict]:
+    items = actions_store.list_actions(limit=limit)
+    return [item for item in items if item.get("action_type") == "kb_gap_from_chat"]
 
 
 def _dominant_context_process(context_results: list[RetrievalResult]) -> str | None:
@@ -910,6 +1050,8 @@ def ask(payload: AskRequest) -> AskResponse:
         answer = build_fallback_answer(language, final_sources, reason=reason)
         if reason == "ambiguous":
             dialog_state.set_pending(session_id, effective_question)
+        if reason == "missing":
+            _register_kb_gap_from_chat(effective_question)
         request_logger.log(raw_question, final_sources, answer=answer)
         return AskResponse(answer=answer, sources=final_sources, no_exact_match=True)
 
@@ -927,6 +1069,8 @@ def ask(payload: AskRequest) -> AskResponse:
         ) from exc
 
     no_exact_match = FALLBACK_RU.lower() in answer.lower() or FALLBACK_EN.lower() in answer.lower()
+    if no_exact_match:
+        _register_kb_gap_from_chat(effective_question)
     dialog_state.clear(session_id)
     request_logger.log(raw_question, final_sources, answer=answer)
     return AskResponse(answer=answer, sources=final_sources, no_exact_match=no_exact_match)
@@ -987,7 +1131,8 @@ def list_documents(
 
 @app.get("/api/actions")
 def list_actions(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, list[dict]]:
-    return {"actions": actions_store.list_actions(limit=limit)}
+    items = actions_store.list_actions(limit=limit)
+    return {"actions": [_serialize_action_for_ui(item) for item in items]}
 
 
 @app.post("/api/actions")
@@ -1018,6 +1163,301 @@ def create_action(payload: ActionCreateRequest) -> dict[str, object]:
             "status": record.status,
             "created_at": record.created_at,
         },
+    }
+
+
+@app.get("/api/appeals/topics")
+def list_anonymous_appeal_topics() -> dict[str, object]:
+    return {
+        "topics": list_topics_for_ui(),
+        "pu_options": [{"pu_name": item} for item in AVAILABLE_PU_NAMES],
+    }
+
+
+@app.post("/api/appeals/anonymous")
+def create_anonymous_appeal(payload: AnonymousAppealCreateRequest) -> dict[str, object]:
+    topic = resolve_topic(payload.topic_id.strip())
+    if not topic:
+        raise HTTPException(status_code=400, detail="Выбрана некорректная тема обращения.")
+
+    manual_pu_name_raw = payload.pu_name.strip()
+    manual_pu_name = _normalize_pu_name(manual_pu_name_raw)
+    if manual_pu_name_raw and not manual_pu_name:
+        raise HTTPException(status_code=400, detail="Укажите корректное наименование ПУ из списка.")
+
+    requester_value = ""
+    profile_pu_name = ""
+    saved_profile = profile_store.load_profile()
+    if saved_profile and saved_profile.full_name:
+        requester_value = saved_profile.full_name
+    if saved_profile and saved_profile.subdivision:
+        profile_pu_name = _normalize_pu_name(saved_profile.subdivision)
+
+    pu_name = manual_pu_name or profile_pu_name
+    if not pu_name:
+        raise HTTPException(status_code=400, detail="Укажите наименование ПУ. Поле обязательно.")
+
+    record = actions_store.create_action(
+        action_type="anonymous_appeal",
+        process="Анонимные обращения",
+        title=topic["topic_name"],
+        details=payload.details.strip(),
+        requester=requester_value,
+        status="Зарегистрировано",
+        is_anonymous=True,
+        topic_id=topic["topic_id"],
+        topic_name=topic["topic_name"],
+        pu_name=pu_name,
+        routing_block_id=topic["block_id"],
+        routing_block=topic["block_name"],
+        recipient_email=topic["recipient_email"],
+    )
+    return {
+        "status": "registered",
+        "message": "Обращение зарегистрировано и направлено.",
+        "action": {
+            "action_id": record.action_id,
+            "action_type": record.action_type,
+            "process": record.process,
+            "title": record.title,
+            "details": record.details,
+            "status": record.status,
+            "created_at": record.created_at,
+            "is_anonymous": record.is_anonymous,
+            "topic_id": record.topic_id,
+            "topic_name": record.topic_name,
+            "pu_name": record.pu_name,
+            "routing_block_id": record.routing_block_id,
+            "routing_block": record.routing_block,
+            "recipient_email": record.recipient_email,
+        },
+    }
+
+
+@app.get("/api/appeals/manager")
+def list_manager_appeals(
+    block_id: str | None = Query(default=None),
+    topic_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> dict[str, object]:
+    appeals = _anonymous_appeals(limit=2000)
+
+    block_value = (block_id or "").strip()
+    topic_value = (topic_id or "").strip()
+    status_value = (status or "").strip()
+
+    if block_value:
+        appeals = [item for item in appeals if str(item.get("routing_block_id", "")).strip() == block_value]
+    if topic_value:
+        appeals = [item for item in appeals if str(item.get("topic_id", "")).strip() == topic_value]
+    if status_value:
+        appeals = [item for item in appeals if str(item.get("status", "")).strip() == status_value]
+
+    from_dt = _parse_iso_datetime(date_from) if date_from else None
+    to_dt = _parse_iso_datetime(date_to) if date_to else None
+    if date_to and to_dt:
+        to_dt = to_dt + timedelta(days=1)
+
+    if from_dt or to_dt:
+        filtered: list[dict] = []
+        for item in appeals:
+            created_at = _parse_iso_datetime(str(item.get("created_at", "")))
+            if not created_at:
+                continue
+            if from_dt and created_at < from_dt:
+                continue
+            if to_dt and created_at >= to_dt:
+                continue
+            filtered.append(item)
+        appeals = filtered
+
+    topics = list_topics_for_ui()
+    return {
+        "appeals": [_serialize_action_for_ui(item) for item in appeals[:limit]],
+        "filters": {
+            "blocks": [
+                {
+                    "block_id": item.block_id,
+                    "block_name": item.block_name,
+                }
+                for item in APPEAL_BLOCKS
+            ],
+            "topics": topics,
+            "statuses": list(APPEAL_ALLOWED_STATUSES),
+        },
+    }
+
+
+@app.post("/api/appeals/{action_id}/status")
+def update_appeal_status(action_id: str, payload: AppealStatusUpdateRequest) -> dict[str, object]:
+    status_value = payload.status.strip()
+    if status_value not in APPEAL_ALLOWED_STATUSES:
+        raise HTTPException(status_code=400, detail="Указан некорректный статус обращения.")
+
+    action_id_value = action_id.strip()
+    existing = next(
+        (
+            item
+            for item in actions_store.list_actions(limit=5000)
+            if str(item.get("action_id", "")).strip() == action_id_value
+        ),
+        None,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Обращение не найдено.")
+    if existing.get("action_type") != "anonymous_appeal":
+        raise HTTPException(status_code=400, detail="Статус можно менять только у анонимных обращений.")
+
+    updated = actions_store.update_action_status(
+        action_id=action_id_value,
+        status=status_value,
+        status_comment=payload.comment.strip(),
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Обращение не найдено.")
+
+    return {
+        "status": "updated",
+        "message": "Статус обращения обновлен.",
+        "action": _serialize_action_for_ui(updated),
+    }
+
+
+@app.get("/api/dashboard/appeals")
+def appeals_dashboard(days: int = Query(default=30, ge=7, le=365)) -> dict[str, object]:
+    appeals = _anonymous_appeals(limit=5000)
+    now_dt = datetime.now(timezone.utc)
+    from_dt = now_dt - timedelta(days=days)
+
+    recent: list[dict] = []
+    for item in appeals:
+        created_at = _parse_iso_datetime(str(item.get("created_at", "")))
+        if not created_at:
+            continue
+        if created_at >= from_dt:
+            recent.append(item)
+
+    status_counter: Counter[str] = Counter()
+    block_counter: Counter[str] = Counter()
+    topic_counter: Counter[str] = Counter()
+    close_hours: list[float] = []
+
+    for item in recent:
+        status_counter[str(item.get("status", "")).strip() or "Без статуса"] += 1
+        block_counter[str(item.get("routing_block", "")).strip() or "Без блока"] += 1
+        topic_counter[str(item.get("topic_name", "")).strip() or "Без темы"] += 1
+
+        created_at = _parse_iso_datetime(str(item.get("created_at", "")))
+        closed_at = _parse_iso_datetime(str(item.get("closed_at", "")))
+        if not created_at or not closed_at:
+            continue
+        delta_hours = (closed_at - created_at).total_seconds() / 3600.0
+        if delta_hours >= 0:
+            close_hours.append(delta_hours)
+
+    total = len(recent)
+    closed = status_counter.get("Закрыто", 0)
+    in_progress = status_counter.get("В работе", 0)
+    clarification = status_counter.get("Нужны уточнения", 0)
+    registered = status_counter.get("Зарегистрировано", 0)
+    closure_rate = round((closed / total) * 100, 1) if total else 0.0
+    avg_close_hours = round(sum(close_hours) / len(close_hours), 1) if close_hours else None
+
+    by_block = [{"name": name, "count": count} for name, count in block_counter.most_common()]
+    by_status = [{"name": name, "count": count} for name, count in status_counter.most_common()]
+    by_topic = [{"name": name, "count": count} for name, count in topic_counter.most_common(10)]
+
+    return {
+        "period_days": days,
+        "metrics": {
+            "total": total,
+            "closed": closed,
+            "in_progress": in_progress,
+            "clarification": clarification,
+            "registered": registered,
+            "closure_rate_percent": closure_rate,
+            "avg_close_hours": avg_close_hours,
+        },
+        "by_block": by_block,
+        "by_status": by_status,
+        "by_topic": by_topic,
+        "topic_catalog_size": len(APPEAL_TOPICS),
+    }
+
+
+@app.get("/api/admin/fallbacks")
+def list_admin_fallbacks(
+    status: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=3000),
+) -> dict[str, object]:
+    items = _kb_gap_actions(limit=5000)
+    status_value = (status or "").strip()
+    if status_value:
+        items = [item for item in items if str(item.get("status", "")).strip() == status_value]
+
+    from_dt = _parse_iso_datetime(date_from) if date_from else None
+    to_dt = _parse_iso_datetime(date_to) if date_to else None
+    if date_to and to_dt:
+        to_dt = to_dt + timedelta(days=1)
+
+    if from_dt or to_dt:
+        filtered: list[dict] = []
+        for item in items:
+            created_at = _parse_iso_datetime(str(item.get("created_at", "")))
+            if not created_at:
+                continue
+            if from_dt and created_at < from_dt:
+                continue
+            if to_dt and created_at >= to_dt:
+                continue
+            filtered.append(item)
+        items = filtered
+
+    return {
+        "fallbacks": [_serialize_action_for_ui(item) for item in items[:limit]],
+        "filters": {
+            "statuses": list(ADMIN_FALLBACK_ALLOWED_STATUSES),
+        },
+    }
+
+
+@app.post("/api/admin/fallbacks/{action_id}/status")
+def update_admin_fallback_status(action_id: str, payload: AdminFallbackStatusUpdateRequest) -> dict[str, object]:
+    status_value = payload.status.strip()
+    if status_value not in ADMIN_FALLBACK_ALLOWED_STATUSES:
+        raise HTTPException(status_code=400, detail="Указан некорректный статус fallback-обращения.")
+
+    action_id_value = action_id.strip()
+    existing = next(
+        (
+            item
+            for item in actions_store.list_actions(limit=5000)
+            if str(item.get("action_id", "")).strip() == action_id_value
+        ),
+        None,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Fallback-обращение не найдено.")
+    if existing.get("action_type") != "kb_gap_from_chat":
+        raise HTTPException(status_code=400, detail="Этот endpoint доступен только для fallback-обращений.")
+
+    updated = actions_store.update_action_status(
+        action_id=action_id_value,
+        status=status_value,
+        status_comment=payload.comment.strip(),
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Fallback-обращение не найдено.")
+
+    return {
+        "status": "updated",
+        "message": "Статус fallback-обращения обновлен.",
+        "action": _serialize_action_for_ui(updated),
     }
 
 
